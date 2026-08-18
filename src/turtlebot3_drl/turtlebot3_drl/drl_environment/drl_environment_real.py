@@ -35,6 +35,8 @@ from ..common.settings import ENABLE_BACKWARD, UNKNOWN, SUCCESS, COLLISION_WALL,
                                 REAL_SPEED_LINEAR_MAX, REAL_SPEED_ANGULAR_MAX, REAL_N_SCAN_SAMPLES, REAL_LIDAR_DISTANCE_CAP, REAL_LIDAR_CORRECTION, \
                                     REAL_THRESHOLD_COLLISION, REAL_THRESHOLD_GOAL, REAL_TOPIC_SCAN, REAL_TOPIC_VELO, REAL_TOPIC_ODOM
 
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
+
 LINEAR = 0
 ANGULAR = 1
 
@@ -77,8 +79,10 @@ class DRLEnvironment(Node):
         ************************************************************"""
         qos = QoSProfile(depth=10)
         # publishers
-        self.cmd_vel_pub = self.create_publisher(Twist, self.velo_topic, qos)
-        # subscribers
+        cmd_vel_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.cmd_vel_pub = self.create_publisher(Twist, self.velo_topic, cmd_vel_qos)
+        #self.cmd_vel_pub = self.create_publisher(Twist, self.velo_topic, qos)
+        ## subscribers
         self.goal_pose_sub = self.create_subscription(Pose, self.goal_topic, self.goal_pose_callback, qos)
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, qos)
         self.scan_sub = self.create_subscription(LaserScan, self.scan_topic, self.scan_callback, qos_profile=qos_profile_sensor_data)
@@ -130,15 +134,31 @@ class DRLEnvironment(Node):
         self.goal_distance = distance_to_goal
         self.goal_angle = goal_angle
 
-    def scan_callback(self, msg):
-        if len(msg.ranges) != REAL_N_SCAN_SAMPLES:
-            print(f"more or less scans than expected! check model.sdf, got: {len(msg.ranges)}, expected: {REAL_N_SCAN_SAMPLES}")
+    #def scan_callback(self, msg):  # for burger bot
+    #    if len(msg.ranges) != REAL_N_SCAN_SAMPLES:
+    #        print(f"more or less scans than expected! check model.sdf, got: {len(msg.ranges)}, expected: {REAL_N_SCAN_SAMPLES}")
         # normalize laser values
+    #    self.obstacle_distance = 1
+    #    for i in range(REAL_N_SCAN_SAMPLES):
+    #            self.scan_ranges[i] = numpy.clip(float(msg.ranges[i] - REAL_LIDAR_CORRECTION) / REAL_LIDAR_DISTANCE_CAP, 0, 1)
+    #            if self.scan_ranges[i] < self.obstacle_distance:
+    #                self.obstacle_distance = self.scan_ranges[i]
+    #    self.obstacle_distance *= REAL_LIDAR_DISTANCE_CAP
+
+    def scan_callback(self, msg):   # for turtlebot3
+        num_samples = len(msg.ranges)
+        # Evenly subsample to REAL_N_SCAN_SAMPLES across full 360°
+        indices = [int(i * num_samples / REAL_N_SCAN_SAMPLES) 
+                for i in range(REAL_N_SCAN_SAMPLES)]
         self.obstacle_distance = 1
-        for i in range(REAL_N_SCAN_SAMPLES):
-                self.scan_ranges[i] = numpy.clip(float(msg.ranges[i] - REAL_LIDAR_CORRECTION) / REAL_LIDAR_DISTANCE_CAP, 0, 1)
-                if self.scan_ranges[i] < self.obstacle_distance:
-                    self.obstacle_distance = self.scan_ranges[i]
+        for i, idx in enumerate(indices):
+            raw = float(msg.ranges[idx])
+            if numpy.isinf(raw) or numpy.isnan(raw):
+                raw = REAL_LIDAR_DISTANCE_CAP
+            self.scan_ranges[i] = numpy.clip(
+                (raw - REAL_LIDAR_CORRECTION) / REAL_LIDAR_DISTANCE_CAP, 0, 1)
+            if self.scan_ranges[i] < self.obstacle_distance:
+                self.obstacle_distance = self.scan_ranges[i]
         self.obstacle_distance *= REAL_LIDAR_DISTANCE_CAP
 
     def stop_reset_robot(self, success):

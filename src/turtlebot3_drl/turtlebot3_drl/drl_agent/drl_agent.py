@@ -211,7 +211,7 @@ def main_test(args=sys.argv[1:]):
     main(args)
 
 def main_real(args=sys.argv[1:]):
-    args = ['0'] + args + ['0']
+    args = ['0'] + args + ['1']
     main(args)
 
 if __name__ == '__main__':
